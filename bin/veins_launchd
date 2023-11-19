@@ -180,8 +180,83 @@ def parse_launch_configuration(launch_xml_string):
     
     return (basedir, copy_nodes, seed)
 
+def forward_connection2(client_socket1, client_socket2, server_socket):
+   """
+   Proxy connections until either socket runs out of data or process terminates.
+   """
+   print("listen2")
+   client_socket1.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+   client_socket2.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+   server_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+   do_exit = False
+   
+   id_wait=0
+   data_wait=""
+   sender=0
+   while not do_exit:
+       (r, w, e) = select.select([client_socket1, client_socket2, server_socket], [], [client_socket1, client_socket2, server_socket], 1)
+       if client_socket1 in e or client_socket2 in e or server_socket in e:
+           do_exit = True
+       if client_socket1 in r:
+           try:
+               data = client_socket1.recv(65535)
+               if not data:
+                   do_exit = True
+           except:
+               do_exit = True
+           finally:
+               if sender != 2:
+                    sender=1
+                    # print("sender 1")
+                    server_socket.send(data)
+               else:
+                   id_wait=1
+                   data_wait=data
+       if client_socket2 in r:
+           try:
+               data = client_socket2.recv(65535)
+               if not data:
+                   do_exit = True
+           except:
+               do_exit = True
+           finally:
+               if sender!=1:
+                    sender=2
+                    # print("sender 2")
+                    server_socket.send(data)
+               else:
+                   id_wait=2
+                   data_wait=data
+       if server_socket in r:
+           try:
+               data = server_socket.recv(65535)
+               if not data:
+                   do_exit = True
+           except:
+               do_exit = True
+           finally:
+               if not do_exit:
+                   if sender == 1:
+                    client_socket1.send(data)
+                    # print("sender 1 back")
+                    sender=0
+                   elif sender == 2:
+                    client_socket2.send(data)
+                    # print("sender 2 back")
+                    sender=0
+                   else:
+                     print("1212")
+                
+                   if id_wait!=0:
+                       sender=id_wait
+                       server_socket.send(data_wait)
+                       id_wait=0
 
-def run_sumo(runpath, sumo_command, shlex, config_file_name, remote_port, seed, client_socket, unused_port_lock, keep_temp):
+   client_socket1.close()
+   client_socket2.close()
+   server_socket.close()
+   
+def run_sumo(listener,runpath, sumo_command, shlex, config_file_name, remote_port, seed, client_socket, unused_port_lock, keep_temp):
     """
     Actually run SUMO.
     """
@@ -203,6 +278,7 @@ def run_sumo(runpath, sumo_command, shlex, config_file_name, remote_port, seed, 
         else:
             cmd = [sumo_command, "-c", config_file_name] 
         logging.info("Starting SUMO (%s) on port %d, seed %d" % (" ".join(cmd), remote_port, seed))
+        logging.info("runpath (%s) " % (runpath))
         sumo = subprocess.Popen(cmd, cwd=runpath, stdin=None, stdout=sumoLogOut, stderr=sumoLogErr)
 
         sumo_socket = None
@@ -223,10 +299,12 @@ def run_sumo(runpath, sumo_command, shlex, config_file_name, remote_port, seed, 
                 tries += 1
 
         unused_port_lock.release()
-        forward_connection(client_socket, sumo_socket, sumo)
+        client_socket2, addr2 = listener.accept()
+        forward_connection2(client_socket2,client_socket,sumo_socket)
+        # start_new_thread(forward_connection2, (client_socket2,client_socket,sumo_socket, sumo))
 
-        client_socket.close()
-        sumo_socket.close()
+        # client_socket.close()
+        # sumo_socket.close()
 
         logging.debug("Done with proxy mode, killing SUMO")
 
@@ -368,6 +446,7 @@ def copy_and_modify_files(basedir, copy_nodes, runpath, remote_port, seed):
             config_xml = config_parser.documentElement
 
             set_sumoconfig_option(config_parser, config_xml, "traci_server", "remote-port", remote_port)
+            # set_sumoconfig_option(config_parser, config_xml, "traci_server", "num-clients", 2)
             set_sumoconfig_option(config_parser, config_xml, "random_number", "seed", seed)
             set_sumoconfig_option(config_parser, config_xml, "random_number", "random", "false")
 
@@ -386,7 +465,7 @@ def copy_and_modify_files(basedir, copy_nodes, runpath, remote_port, seed):
     return config_file_name
 
 
-def handle_launch_configuration(sumo_command, shlex, launch_xml_string, client_socket, keep_temp):
+def handle_launch_configuration(listener,sumo_command, shlex, launch_xml_string, client_socket, keep_temp):
     """
     Process launch configuration in launch_xml_string.
     """
@@ -416,7 +495,7 @@ def handle_launch_configuration(sumo_command, shlex, launch_xml_string, client_s
         config_file_name = copy_and_modify_files(basedir, copy_nodes, runpath, remote_port, seed)
         
         # run SUMO
-        result_xml = run_sumo(runpath, sumo_command, shlex, config_file_name, remote_port, seed, client_socket, unused_port_lock, keep_temp)
+        result_xml = run_sumo(listener, runpath, sumo_command, shlex, config_file_name, remote_port, seed, client_socket, unused_port_lock, keep_temp)
 
     finally:
         unused_port_lock.__exit__()
@@ -511,7 +590,7 @@ def read_launch_config(conn):
     return data
         
         
-def handle_connection(sumo_command, shlex, conn, addr, keep_temp):
+def handle_connection(listener, sumo_command, shlex, conn, addr, keep_temp):
     """
     Handle incoming connection.
     """
@@ -520,7 +599,7 @@ def handle_connection(sumo_command, shlex, conn, addr, keep_temp):
 
     try:
         data = read_launch_config(conn)
-        handle_launch_configuration(sumo_command, shlex, data, conn, keep_temp)
+        handle_launch_configuration(listener, sumo_command, shlex, data, conn, keep_temp)
 
     except Exception as e:
         logging.error("Aborting on error: %s" % e)
@@ -552,7 +631,8 @@ def wait_for_connections(sumo_command, shlex, sumo_port, bind_address, do_daemon
         while True:
             conn, addr = listener.accept()
             logging.debug("Connection from %s on port %d" % addr)
-            start_new_thread(handle_connection, (sumo_command, shlex, conn, addr, keep_temp))
+            handle_connection(listener, sumo_command, shlex, conn, addr, keep_temp)
+            # start_new_thread(handle_connection, (sumo_command, shlex, conn, addr, keep_temp))
     
     except SystemExit:
         logging.warning("Killed.")
@@ -603,7 +683,7 @@ def daemonize(pidfile):
             pass
         else:
             logging.error("Aborting. Failed to fork: %s" % e.strerror)
-            sys.exit(1);
+            sys.exit(1)
     except OSError as e:
         logging.error("Aborting. Failed to fork: %s" % e.strerror)
         sys.exit(1)
@@ -627,7 +707,7 @@ def daemonize(pidfile):
                 atexit.register(os.remove, pidfile)
         else:
             logging.error("Aborting. Failed to fork: %s" % e.strerror)
-            sys.exit(1);
+            sys.exit(1)
 
     except OSError as e:
         logging.error("Aborting. Failed to fork: %s" % e.strerror)

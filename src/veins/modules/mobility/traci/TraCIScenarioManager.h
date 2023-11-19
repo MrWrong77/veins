@@ -123,6 +123,7 @@ public:
 protected:
     bool traciInitialized = false; /**< Flag indicating whether the init_traci routine has been run. Note that it will change to false again once set, even during shutdown. */
     simtime_t connectAt; /**< when to connect to TraCI server (must be the initial timestep of the server) */
+    simtime_t listenAt;
     simtime_t firstStepAt; /**< when to start synchronizing with the TraCI server (-1: immediately after connecting) */
     simtime_t updateInterval; /**< time interval of hosts' position updates */
     // maps from vehicle type to moduleType, moduleName, and moduleDisplayString
@@ -146,6 +147,7 @@ protected:
 
     AnnotationManager* annotations;
     std::unique_ptr<TraCIConnection> connection;
+    std::unique_ptr<TraCIConnection> client_connection;  // seu: python-traci-client connection
     std::unique_ptr<TraCICommandInterface> commandIfc;
 
     size_t nextNodeVectorIndex; /**< next OMNeT++ module vector index to use */
@@ -159,6 +161,7 @@ protected:
     bool autoShutdownTriggered;
     cMessage* connectAndStartTrigger; /**< self-message scheduled for when to connect to TraCI server and start running */
     cMessage* executeOneTimestepTrigger; /**< self-message scheduled for when to next call executeOneTimestep */
+    cMessage* waitClientConnect; // seu: wait for python-traci-client connect
 
     BaseWorldUtility* world;
     std::map<const BaseMobility*, const MobileHostObstacle*> vehicleObstacles;

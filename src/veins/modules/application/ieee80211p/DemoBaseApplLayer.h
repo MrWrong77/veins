@@ -27,6 +27,7 @@
 #include "veins/base/modules/BaseApplLayer.h"
 #include "veins/modules/utility/Consts80211p.h"
 #include "veins/modules/messages/BaseFrame1609_4_m.h"
+#include "veins/modules/messages/ReportMessage_m.h"
 #include "veins/modules/messages/DemoServiceAdvertisement_m.h"
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
 #include "veins/base/connectionManager/ChannelAccess.h"
@@ -87,6 +88,8 @@ protected:
 
     /** @brief this function is called upon receiving a DemoServiceAdvertisement */
     virtual void onWSA(DemoServiceAdvertisment* wsa){};
+
+    virtual void onRM(ReportMessage* rm){};
 
     /** @brief this function is called every time the vehicle receives a position update signal */
     virtual void handlePositionUpdate(cObject* obj);

@@ -46,6 +46,7 @@ public:
         std::string message;
     };
 
+    static TraCIConnection* listen(cComponent* owner, int port);
     static TraCIConnection* connect(cComponent* owner, const char* host, int port);
     void setNetbounds(TraCICoord netbounds1, TraCICoord netbounds2, int margin);
     ~TraCIConnection();
@@ -58,6 +59,9 @@ public:
      */
     TraCIBuffer query(uint8_t commandId, const TraCIBuffer& buf = TraCIBuffer(), Result* result = nullptr);
 
+    // sendToPythonClient
+    std::string sendToPythonClient(uint8_t commandId, const TraCIBuffer& buf = TraCIBuffer());
+
     /**
      * sends a message via TraCI (after adding the header)
      */
@@ -67,6 +71,11 @@ public:
      * receives a message via TraCI (and strips the header)
      */
     std::string receiveMessage();
+
+    /**
+    * receives a message via Python_TraCI_client (and strips the header)
+    */
+    std::string receivePythonClientMessage();
 
     /**
      * convert TraCI heading to OMNeT++ heading (in rad)
@@ -101,5 +110,5 @@ private:
  * returns byte-buffer containing a TraCI command with optional parameters
  */
 std::string makeTraCICommand(uint8_t commandId, const TraCIBuffer& buf = TraCIBuffer());
-
+std::string makePythonClientMsg(uint8_t commandId, const TraCIBuffer& buf = TraCIBuffer());
 } // namespace veins

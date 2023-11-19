@@ -314,4 +314,179 @@ double TraCIConnection::omnet2traciHeading(Heading heading) const
     return coordinateTransformation->omnet2traciHeading(heading);
 }
 
+TraCIConnection* TraCIConnection::listen(cComponent *owner, int port) {
+#ifdef win32
+    if (initsocketlibonce() != 0)
+        throw cRuntimeError("Could not init socketlib");
+    SOCKET sock = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) {
+        WSACleanup();
+        return nullptr;
+    }
+
+    SOCKADDR_IN addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port); // 8888
+    addr.sin_addr.S_un.S_addr = INADDR_ANY;
+    if (bind(sock, (SOCKADDR*) &addr, sizeof(addr)) == SOCKET_ERROR) {
+        closesocket(sock);
+        WSACleanup();
+        return nullptr;
+    }
+
+    if (::listen(sock, SOMAXCONN) == SOCKET_ERROR) {
+        closesocket(sock);
+        WSACleanup();
+        return nullptr;
+    }
+
+    SOCKET *socketPtr = new SOCKET();
+    SOCKET clientSock = ::accept(sock, NULL, NULL);
+    if (clientSock == INVALID_SOCKET) {
+        closesocket(sock);
+        WSACleanup();
+        return nullptr;
+    }
+    *socketPtr = clientSock;
+    return new TraCIConnection(owner, socketPtr);
+
+#else
+
+   SOCKET* sockfd = new SOCKET();
+   SOCKET*  newsockfd = new SOCKET();
+   socklen_t clilen;
+   struct sockaddr_in serv_addr, cli_addr;
+   
+   /* First call to socket() function */
+   *sockfd = ::socket(AF_INET, SOCK_STREAM, 0);
+   
+   if (*sockfd < 0) {
+      perror("ERROR opening socket");
+      exit(1);
+   }
+   
+   int reuse_addr = 1;
+   if (::setsockopt(*sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(reuse_addr)) < 0) {
+       std::cerr << "setsockopt() failed: " << strerror(errno) << std::endl;
+       exit(1);
+   }
+
+
+   /* Initialize socket structure */
+   bzero((char *) &serv_addr, sizeof(serv_addr));
+   
+   serv_addr.sin_family = AF_INET;
+   serv_addr.sin_addr.s_addr = INADDR_ANY;
+   serv_addr.sin_port = htons(port);
+   
+   /* Now bind the host address using bind() call.*/
+   if (::bind(*sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+      perror("ERROR on binding");
+      exit(1);
+   }
+      
+   /* Now start listening for the clients, here process will
+      * go in sleep mode and will wait for the incoming connection
+   */
+   
+   ::listen(*sockfd,5);
+   clilen = sizeof(cli_addr);
+   
+   /* Accept actual connection from the client */
+   *newsockfd = ::accept(*sockfd, (struct sockaddr *)&cli_addr, &clilen);
+	
+   if (*newsockfd < 0) {
+      perror("ERROR on accept");
+      exit(1);
+   }
+
+   delete sockfd;
+
+   return new TraCIConnection(owner, newsockfd);
+#endif
+}
+
+
+
+
+std::string TraCIConnection::sendToPythonClient(uint8_t commandId,
+        const TraCIBuffer &buf) {
+    sendMessage(makePythonClientMsg(commandId, buf));
+    // TraCIBuffer obuf(receivePythonClientMessage());// receive cmd from python-traci-client
+    // uint8_t cmd;
+    // obuf >> cmd;
+    return receivePythonClientMessage();
+}
+
+
+std::string TraCIConnection::receivePythonClientMessage() {
+    if (!socketPtr)
+        throw cRuntimeError("Not connection to Python TraCI client");
+
+    uint32_t msgLength;
+    {
+        char msgLenBuf[sizeof(uint32_t)];
+        uint32_t bytesRead = 0;
+        while (bytesRead < sizeof(uint32_t)) {
+            int receivedBytes = ::recv(socket(socketPtr),
+                    reinterpret_cast<char*>(&msgLenBuf) + bytesRead,
+                    sizeof(uint32_t) - bytesRead, 0);
+            if (receivedBytes > 0) {
+                bytesRead += receivedBytes;
+            } else if (receivedBytes == 0) {
+                throw cRuntimeError(
+                        "Connection to Python TraCI client closed unexpectedly. Check your server's log");
+            } else {
+                if (sock_errno() == EINTR)
+                    continue;
+                if (sock_errno() == EAGAIN)
+                    continue;
+                throw cRuntimeError(
+                        "Connection to Python TraCI client lost. Check your server's log. Error message: %d: %s",
+                        sock_errno(), strerror(sock_errno()));
+            }
+        }
+        TraCIBuffer(std::string(msgLenBuf, sizeof(uint32_t))) >> msgLength;
+    }
+
+    uint32_t bufLength = msgLength - sizeof(msgLength);
+    char buf[bufLength];
+    {
+        EV_TRACE << "Reading Python TraCI client message of " << bufLength << " bytes"
+                        << endl;
+        uint32_t bytesRead = 0;
+        while (bytesRead < bufLength) {
+            int receivedBytes = ::recv(socket(socketPtr),
+                    reinterpret_cast<char*>(&buf) + bytesRead,
+                    bufLength - bytesRead, 0);
+            if (receivedBytes > 0) {
+                bytesRead += receivedBytes;
+            } else if (receivedBytes == 0) {
+                throw cRuntimeError(
+                        "Connection to Python TraCI client closed unexpectedly. Check your server's log");
+            } else {
+                if (sock_errno() == EINTR)
+                    continue;
+                if (sock_errno() == EAGAIN)
+                    continue;
+                throw cRuntimeError(
+                        "Connection to Python TraCI client lost. Check your server's log. Error message: %d: %s",
+                        sock_errno(), strerror(sock_errno()));
+            }
+        }
+    }
+    return std::string(buf, bufLength);
+}
+
+std::string makePythonClientMsg(uint8_t commandId, const TraCIBuffer &buf) {
+    // if (sizeof(uint8_t) + sizeof(uint8_t) + buf.str().length() > 0xFF) {
+    //     uint32_t len = sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint8_t)
+    //             + buf.str().length();
+    //     return (TraCIBuffer() << static_cast<uint8_t>(0) << len << commandId).str()
+    //             + buf.str();
+    // }
+    // uint8_t len = sizeof(uint8_t) + sizeof(uint8_t) + buf.str().length();
+    // return (TraCIBuffer() << len << commandId).str() + buf.str();
+    return (TraCIBuffer() << commandId).str() + buf.str();
+}
 } // namespace veins

@@ -134,6 +134,15 @@ const uint8_t CMD_SUBSCRIBE_VEHICLETYPE_CONTEXT = 0x85;
 const uint8_t CMD_SUBSCRIBE_VEHICLETYPE_VARIABLE = 0xd5;
 const uint8_t CMD_SUBSCRIBE_VEHICLE_CONTEXT = 0x84;
 const uint8_t CMD_SUBSCRIBE_VEHICLE_VARIABLE = 0xd4;
+
+// SEU Python-Client CMD
+const uint8_t CMD_NEW_STEP = 0x01; // 
+const uint8_t CMD_GET_VEHICLE = 0x02;// get info of vehicle x
+const uint8_t CMD_GET_Neigbours = 0x03;// get neigbours of vehicle x
+const uint8_t CMD_GET_SIM_TIME = 0x97;
+const uint8_t CMD_SIM_NEXT = 0x98; // python clietn finish, veins continue
+const uint8_t CMD_SIM_END = 0x99; // sim end
+
 const uint8_t COPY = 0x88;
 const int8_t DEPARTFLAG_CONTAINER_TRIGGERED = -0x02;
 const int8_t DEPARTFLAG_LANE_ALLOWED_FREE = -0x04;

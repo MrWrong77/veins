@@ -43,3 +43,9 @@ void TraCIDemoRSU11p::onWSM(BaseFrame1609_4* frame)
     // this rsu repeats the received traffic update in 2 seconds plus some random delay
     sendDelayedDown(wsm->dup(), 2 + uniform(0.01, 0.2));
 }
+
+void TraCIDemoRSU11p::onRM(ReportMessage* frame)
+{
+    // ReportMessage* wsm = check_and_cast<ReportMessage*>(frame);
+    // sendDelayedDown(wsm->dup(), 2 + uniform(0.01, 0.2));
+}

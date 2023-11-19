@@ -23,7 +23,7 @@
 #pragma once
 
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
-
+#include "VehicleInfo.h"
 namespace veins {
 
 /**
@@ -44,17 +44,27 @@ class VEINS_API TraCIDemo11p : public DemoBaseApplLayer {
 public:
     void initialize(int stage) override;
 
+    const std::map<LAddress::L2Type,VehicleInfo>& GetCollectionInfo(){return connectedNodes;}
+
 protected:
     simtime_t lastDroveAt;
     bool sentMessage;
     int currentSubscribedServiceId;
 
 protected:
-    void onWSM(BaseFrame1609_4* wsm) override;
-    void onWSA(DemoServiceAdvertisment* wsa) override;
+    std::map<LAddress::L2Type,VehicleInfo> connectedNodes;
+    VehicleInfo f_nei;
+    VehicleInfo b_nei;
+
+protected:
+    void onWSM(BaseFrame1609_4* wsm) override;//wave short message
+    void onWSA(DemoServiceAdvertisment* wsa) override;// wave service advertisement
+    void onRM(ReportMessage* rm) override;
 
     void handleSelfMsg(cMessage* msg) override;
-    void handlePositionUpdate(cObject* obj) override;
+    void handlePositionUpdate(cObject* obj) override;// vehicle update
+
+    void ProcessNeigbour();
 };
 
 } // namespace veins

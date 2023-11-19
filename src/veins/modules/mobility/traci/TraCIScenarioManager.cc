@@ -34,7 +34,9 @@
 #include "veins/modules/mobility/traci/TraCIMobility.h"
 #include "veins/modules/obstacle/ObstacleControl.h"
 #include "veins/modules/world/traci/trafficLight/TraCITrafficLightInterface.h"
-
+#include "vehicle.pb.h"
+#include "veins/modules/application/traci/TraCIDemo11p.h"
+#include "veins/modules/application/traci/VehicleInfo.h"
 using namespace veins::TraCIConstants;
 
 using veins::AnnotationManagerAccess;
@@ -54,6 +56,7 @@ const simsignal_t TraCIScenarioManager::traciTimestepEndSignal = registerSignal(
 
 TraCIScenarioManager::TraCIScenarioManager()
     : connection(nullptr)
+    , client_connection(nullptr)
     , commandIfc(nullptr)
     , connectAndStartTrigger(nullptr)
     , executeOneTimestepTrigger(nullptr)
@@ -251,6 +254,7 @@ void TraCIScenarioManager::initialize(int stage)
     std::copy(std::istream_iterator<std::string>(filterstream), std::istream_iterator<std::string>(), std::back_inserter(trafficLightModuleIds));
 
     connectAt = par("connectAt");
+    listenAt = par("listenAt");
     firstStepAt = par("firstStepAt");
     updateInterval = par("updateInterval");
     if (firstStepAt == -1) firstStepAt = connectAt + updateInterval;
@@ -286,10 +290,11 @@ void TraCIScenarioManager::initialize(int stage)
 
     ASSERT(firstStepAt > connectAt);
     connectAndStartTrigger = new cMessage("connect");
-    scheduleAt(connectAt, connectAndStartTrigger);
+    // scheduleAt(connectAt, connectAndStartTrigger);
     executeOneTimestepTrigger = new cMessage("step");
-    scheduleAt(firstStepAt, executeOneTimestepTrigger);
-
+    // scheduleAt(firstStepAt, executeOneTimestepTrigger);
+    waitClientConnect = new cMessage("waitClient");
+    scheduleAt(listenAt, waitClientConnect);
     EV_DEBUG << "initialized TraCIScenarioManager" << endl;
 }
 
@@ -485,6 +490,15 @@ void TraCIScenarioManager::handleSelfMsg(cMessage* msg)
         init_traci();
         return;
     }
+
+    // wait for python-traci-client connection
+    if (msg == waitClientConnect) {
+        client_connection.reset(TraCIConnection::listen(this, 8888));
+        scheduleAt(connectAt, connectAndStartTrigger);
+        scheduleAt(firstStepAt, executeOneTimestepTrigger);
+        return;
+    }
+
     if (msg == executeOneTimestepTrigger) {
         executeOneTimestep();
         return;
@@ -632,6 +646,95 @@ void TraCIScenarioManager::executeOneTimestep()
         EV_DEBUG << "Getting " << count << " subscription results" << endl;
         for (uint32_t i = 0; i < count; ++i) {
             processSubcriptionResult(buf);
+        }
+    }
+
+    // seu: python-traci-client connection is not nullptr,then wait for command from python-client
+    if (client_connection != nullptr) {
+        TraCIBuffer obuf(client_connection->sendToPythonClient(CMD_NEW_STEP,TraCIBuffer()));
+        uint8_t cmd;
+        obuf >> cmd;
+        std::string resp_data = obuf.str();
+        resp_data=resp_data.substr(1);
+        while (cmd != CMD_SIM_NEXT) { //cmd from python-traci-client 
+            switch (cmd) {
+            case CMD_GET_VEHICLE:// get vehicle info
+            {
+                pb::PV_GetVehicle req;
+                req.ParseFromString(resp_data);
+                std::string vehicleId = req.id();
+
+                auto module = getManagedModule(vehicleId);//"flow0.0"
+                std::string data;
+                if (module != nullptr){
+                    auto sm = module->getSubmodule("appl");
+                    auto vehicle = check_and_cast<TraCIDemo11p*>(sm);
+                    auto infos = vehicle->GetCollectionInfo();
+                    for (auto info : infos) {
+                        pb::VP_GetVehicle getVehicle;
+                        pb::VehicleInfo* vi = new pb::VehicleInfo;
+                        vi->set_id(info.second.id);
+                        vi->set_x(info.second.pos.x);
+                        vi->set_y(info.second.pos.y);
+                        vi->set_z(info.second.pos.z);
+                        getVehicle.set_allocated_info(vi);
+                        getVehicle.SerializeToString(&data);
+                        break;
+                   }
+                }
+
+                EV_WARN << "CMD_GET_VEHICLE" << std::endl;
+                // cmd = client_connection->sendToPythonClient(CMD_GET_VEHICLE,TraCIBuffer(data));
+                TraCIBuffer obuf(client_connection->sendToPythonClient(CMD_GET_VEHICLE,TraCIBuffer(data)));
+                obuf >> cmd;
+                resp_data = obuf.str();
+                resp_data = resp_data.substr(1);
+                break;
+            }
+            case CMD_GET_Neigbours:
+            {
+                pb::PV_GetNeigbours req;
+                req.ParseFromString(resp_data);
+                std::string vehicleId = req.id();
+
+                auto module = getManagedModule(vehicleId);//"flow0.0"
+                pb::VP_GetNeigbours getNeigbours;
+                std::string data;
+                if (module != nullptr){
+                    auto sm = module->getSubmodule("appl");
+                    auto vehicle = check_and_cast<TraCIDemo11p*>(sm);
+                    auto infos = vehicle->GetCollectionInfo();
+                    for (auto info : infos) {
+                        pb::Neigbour nei;
+                        pb::VehicleInfo* vi = new pb::VehicleInfo;
+                        vi->set_id(info.second.id);
+                        vi->set_x(info.second.pos.x);
+                        vi->set_y(info.second.pos.y);
+                        vi->set_z(info.second.pos.z);
+                        nei.set_allocated_info(vi);
+                        nei.set_is_forward(info.second.isForward);
+                        nei.set_is_same_direction(info.second.isSameDirection);
+                        getNeigbours.add_neigbours()->CopyFrom(nei);
+                   }
+                }
+                getNeigbours.SerializeToString(&data);
+                EV_WARN << "CMD_GET_Neigbours" << std::endl;
+                TraCIBuffer obuf(client_connection->sendToPythonClient(CMD_GET_Neigbours,TraCIBuffer(data)));
+                obuf >> cmd;
+                resp_data = obuf.str();
+                resp_data = resp_data.substr(1);
+                break;
+            }
+            case CMD_GET_SIM_TIME:{
+                simtime_t sim = simTime();
+                TraCIBuffer obuf(client_connection->sendToPythonClient(CMD_GET_SIM_TIME,TraCIBuffer()));
+                obuf >> cmd;
+                resp_data = obuf.str();
+                resp_data = resp_data.substr(1);
+            }
+            default:
+                EV_WARN << "UNKNOW CMD" << std::endl;
+            }
         }
     }
 

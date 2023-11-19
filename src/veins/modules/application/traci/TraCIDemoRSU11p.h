@@ -33,6 +33,8 @@ class VEINS_API TraCIDemoRSU11p : public DemoBaseApplLayer {
 protected:
     void onWSM(BaseFrame1609_4* wsm) override;
     void onWSA(DemoServiceAdvertisment* wsa) override;
+    void onRM(ReportMessage* rm) override;
+
 };
 
 } // namespace veins

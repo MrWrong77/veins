@@ -169,6 +169,10 @@ void DemoBaseApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId
         wsa->setTargetChannel(static_cast<int>(currentServiceChannel));
         wsa->setPsid(currentOfferedServiceId);
         wsa->setServiceDescription(currentServiceDescription.c_str());
+    }else if (ReportMessage* rm = dynamic_cast<ReportMessage*>(wsm)) {
+        rm->setChannelNumber(static_cast<int>(Channel::cch));
+        rm->setSenderPos(curPosition);
+        rm->setSenderSpeed(curSpeed);
     }
     else {
         if (dataOnSch)
@@ -216,6 +220,8 @@ void DemoBaseApplLayer::handleLowerMsg(cMessage* msg)
     else if (DemoServiceAdvertisment* wsa = dynamic_cast<DemoServiceAdvertisment*>(wsm)) {
         receivedWSAs++;
         onWSA(wsa);
+    }else if (ReportMessage* rm = dynamic_cast<ReportMessage*>(wsm)) {
+        onRM(rm);
     }
     else {
         receivedWSMs++;
